@@ -20,19 +20,27 @@ project/
 ├── internal/               # Private code (cannot be imported externally)
 │   ├── handler/            # HTTP/gRPC handlers
 │   ├── service/            # Business logic layer
-│   ├── repository/         # Data access layer
-│   ├── model/              # Domain models
+│   ├── repository/         # Data access layer (GORM implementation)
+│   ├── model/              # Domain models (GORM models)
 │   └── middleware/          # Middleware
 │
 ├── pkg/                    # Public libraries (can be imported externally)
 │   ├── config/             # Configuration loading
 │   ├── logger/             # Logging wrapper
 │   ├── errors/             # Unified error handling
-│   ├── database/           # Database connections
+│   ├── database/           # Database connections (GORM init)
+│   │   ├── gorm.go         # GORM initialization
+│   │   ├── migrate.go      # Auto migration
+│   │   └── transaction.go  # Transaction helper
 │   ├── redis/              # Redis client
 │   ├── auth/               # Authentication tools (JWT, etc.)
 │   ├── utils/              # Utility functions
 │   └── models/             # Public data models
+│
+├── migrations/             # Database migration files (optional)
+│   ├── 001_create_users.up.sql
+│   ├── 001_create_users.down.sql
+│   └── ...
 │
 ├── api/                    # API definitions
 │   ├── proto/              # Protobuf definitions (for gRPC)
@@ -404,7 +412,7 @@ func (s *UserService) CreateUser(ctx context.Context, input *model.CreateUserInp
 }
 ```
 
-### Repository Layer (internal/repository/user.go)
+### Repository Layer (internal/repository/user_repository.go)
 
 ```go
 package repository
@@ -416,11 +424,82 @@ import (
 )
 
 type UserRepository interface {
-    FindByID(ctx context.Context, id string) (*model.User, error)
+    FindByID(ctx context.Context, id uint) (*model.User, error)
     FindByEmail(ctx context.Context, email string) (*model.User, error)
+    FindAll(ctx context.Context, offset, limit int) ([]*model.User, int64, error)
     Create(ctx context.Context, user *model.User) error
     Update(ctx context.Context, user *model.User) error
-    Delete(ctx context.Context, id string) error
+    Delete(ctx context.Context, id uint) error
+}
+```
+
+### GORM Repository Implementation (internal/repository/user_repo_gorm.go)
+
+```go
+package repository
+
+import (
+    "context"
+
+    "github.com/username/project/internal/model"
+    "gorm.io/gorm"
+)
+
+type userGormRepo struct {
+    db *gorm.DB
+}
+
+func NewUserGormRepo(db *gorm.DB) UserRepository {
+    return &userGormRepo{db: db}
+}
+
+func (r *userGormRepo) FindByID(ctx context.Context, id uint) (*model.User, error) {
+    var user model.User
+    if err := r.db.WithContext(ctx).First(&user, id).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *userGormRepo) FindByEmail(ctx context.Context, email string) (*model.User, error) {
+    var user model.User
+    if err := r.db.WithContext(ctx).Where("email = ?", email).First(&user).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *userGormRepo) FindAll(ctx context.Context, offset, limit int) ([]*model.User, int64, error) {
+    var users []*model.User
+    var total int64
+
+    if err := r.db.WithContext(ctx).Model(&model.User{}).Count(&total).Error; err != nil {
+        return nil, 0, err
+    }
+
+    if err := r.db.WithContext(ctx).Offset(offset).Limit(limit).Find(&users).Error; err != nil {
+        return nil, 0, err
+    }
+
+    return users, total, nil
+}
+
+func (r *userGormRepo) Create(ctx context.Context, user *model.User) error {
+    return r.db.WithContext(ctx).Create(user).Error
+}
+
+func (r *userGormRepo) Update(ctx context.Context, user *model.User) error {
+    return r.db.WithContext(ctx).Save(user).Error
+}
+
+func (r *userGormRepo) Delete(ctx context.Context, id uint) error {
+    return r.db.WithContext(ctx).Delete(&model.User{}, id).Error
 }
 ```
 
@@ -431,27 +510,44 @@ package model
 
 import (
     "time"
-    "validation "github.com/go-ozzo/ozzo-validation/v4"
+
+    "gorm.io/gorm"
 )
 
+// BaseModel contains common fields for all models
+type BaseModel struct {
+    ID        uint           `json:"id" gorm:"primaryKey"`
+    CreatedAt time.Time      `json:"created_at"`
+    UpdatedAt time.Time      `json:"updated_at"`
+    DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+}
+
 type User struct {
-    ID        string    `json:"id"`
-    Name      string    `json:"name"`
-    Email     string    `json:"email"`
-    CreatedAt time.Time `json:"created_at"`
-    UpdatedAt time.Time `json:"updated_at"`
+    BaseModel
+    Name     string `json:"name" gorm:"size:100;not null"`
+    Email    string `json:"email" gorm:"size:255;uniqueIndex;not null"`
+    Password string `json:"-" gorm:"size:255;not null"`
+    Age      int    `json:"age" gorm:"default:0"`
+    Status   int    `json:"status" gorm:"default:1"` // 1: active, 0: inactive
+}
+
+// TableName specifies the table name for User model
+func (User) TableName() string {
+    return "users"
 }
 
 type CreateUserInput struct {
-    Name  string `json:"name"`
-    Email string `json:"email"`
+    Name     string `json:"name" binding:"required"`
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required,min=6"`
+    Age      int    `json:"age"`
 }
 
-func (i *CreateUserInput) Validate() error {
-    return validation.ValidateStruct(i,
-        validation.Field(&i.Name, validation.Required, validation.Length(1, 100)),
-        validation.Field(&i.Email, validation.Required, validation.Email),
-    )
+type UpdateUserInput struct {
+    Name   string `json:"name"`
+    Email  string `json:"email"`
+    Age    int    `json:"age"`
+    Status int    `json:"status"`
 }
 ```
 
@@ -607,6 +703,133 @@ func Load() (*Config, error) {
 
     return cfg, nil
 }
+```
+
+### GORM Database Connection (pkg/database/gorm.go)
+
+```go
+package database
+
+import (
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/username/project/pkg/config"
+    "gorm.io/driver/mysql"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+    "gorm.io/gorm/logger"
+)
+
+func NewGormDB(cfg config.DatabaseConfig) (*gorm.DB, error) {
+    var dialector gorm.Dialector
+
+    switch cfg.Driver {
+    case "mysql":
+        dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+            cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
+        dialector = mysql.Open(dsn)
+    case "postgres":
+        dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%d port=%d sslmode=disable TimeZone=Asia/Shanghai",
+            cfg.Host, cfg.User, cfg.Password, cfg.DBName, cfg.Port)
+        dialector = postgres.Open(dsn)
+    default:
+        return nil, fmt.Errorf("unsupported database driver: %s", cfg.Driver)
+    }
+
+    db, err := gorm.Open(dialector, &gorm.Config{
+        Logger: logger.Default.LogMode(logger.Info),
+        NowFunc: func() time.Time {
+            return time.Now().Local()
+        },
+    })
+    if err != nil {
+        return nil, fmt.Errorf("failed to connect database: %w", err)
+    }
+
+    sqlDB, err := db.DB()
+    if err != nil {
+        return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
+    }
+
+    // Connection pool settings
+    sqlDB.SetMaxIdleConns(10)
+    sqlDB.SetMaxOpenConns(100)
+    sqlDB.SetConnMaxLifetime(time.Hour)
+
+    log.Println("Database connected successfully")
+    return db, nil
+}
+```
+
+### GORM Auto Migration (pkg/database/migrate.go)
+
+```go
+package database
+
+import (
+    "log"
+
+    "gorm.io/gorm"
+)
+
+func AutoMigrate(db *gorm.DB, models ...interface{}) error {
+    for _, model := range models {
+        if err := db.AutoMigrate(model); err != nil {
+            return err
+        }
+        log.Printf("Auto migrated: %T", model)
+    }
+    return nil
+}
+```
+
+### GORM Transaction Helper (pkg/database/transaction.go)
+
+```go
+package database
+
+import (
+    "context"
+
+    "gorm.io/gorm"
+)
+
+func WithTransaction(ctx context.Context, db *gorm.DB, fn func(tx *gorm.DB) error) error {
+    return db.WithContext(ctx).Transaction(fn)
+}
+
+func WithTransactionCtx(ctx context.Context, db *gorm.DB, fn func(ctx context.Context, tx *gorm.DB) error) error {
+    return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+        return fn(ctx, tx)
+    })
+}
+```
+
+### SQL Migration File Example (migrations/001_create_users.up.sql)
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    created_at DATETIME(3) NULL,
+    updated_at DATETIME(3) NULL,
+    deleted_at DATETIME(3) NULL,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    age INT DEFAULT 0,
+    status INT DEFAULT 1,
+    PRIMARY KEY (id),
+    INDEX idx_users_deleted_at (deleted_at),
+    UNIQUE INDEX idx_users_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+### SQL Migration Rollback (migrations/001_create_users.down.sql)
+
+```sql
+DROP TABLE IF EXISTS users;
 ```
 
 ### Makefile Template

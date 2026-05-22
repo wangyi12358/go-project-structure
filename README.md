@@ -28,19 +28,27 @@ project/
 ├── internal/               # Private code (cannot be imported externally)
 │   ├── handler/            # HTTP/gRPC handlers
 │   ├── service/            # Business logic layer
-│   ├── repository/         # Data access layer
-│   ├── model/              # Domain models
+│   ├── repository/         # Data access layer (GORM implementation)
+│   ├── model/              # Domain models (GORM models)
 │   └── middleware/          # Middleware
 │
 ├── pkg/                    # Public libraries (can be imported externally)
 │   ├── config/             # Configuration loading
 │   ├── logger/             # Logging wrapper
 │   ├── errors/             # Unified error handling
-│   ├── database/           # Database connections
+│   ├── database/           # Database connections (GORM init)
+│   │   ├── gorm.go         # GORM initialization
+│   │   ├── migrate.go      # Auto migration
+│   │   └── transaction.go  # Transaction helper
 │   ├── redis/              # Redis client
 │   ├── auth/               # Authentication tools (JWT, etc.)
 │   ├── utils/              # Utility functions
 │   └── models/             # Public data models
+│
+├── migrations/             # Database migration files (optional)
+│   ├── 001_create_users.up.sql
+│   ├── 001_create_users.down.sql
+│   └── ...
 │
 ├── api/                    # API definitions
 │   ├── proto/              # Protobuf definitions (for gRPC)

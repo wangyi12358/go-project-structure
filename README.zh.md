@@ -28,19 +28,27 @@ project/
 ├── internal/               # 私有代码（不可被外部导入）
 │   ├── handler/            # HTTP/gRPC 处理器
 │   ├── service/            # 业务逻辑层
-│   ├── repository/         # 数据访问层
-│   ├── model/              # 领域模型
+│   ├── repository/         # 数据访问层（GORM 实现）
+│   ├── model/              # 领域模型（GORM 模型）
 │   └── middleware/          # 中间件
 │
 ├── pkg/                    # 公共库（可被外部导入）
 │   ├── config/             # 配置加载
 │   ├── logger/             # 日志封装
 │   ├── errors/             # 统一错误处理
-│   ├── database/           # 数据库连接
+│   ├── database/           # 数据库连接（GORM 初始化）
+│   │   ├── gorm.go         # GORM 初始化
+│   │   ├── migrate.go      # 自动迁移
+│   │   └── transaction.go  # 事务封装
 │   ├── redis/              # Redis 客户端
 │   ├── auth/               # 认证工具（JWT等）
 │   ├── utils/              # 通用工具函数
 │   └── models/             # 公共数据模型
+│
+├── migrations/             # 数据库迁移文件（可选）
+│   ├── 001_create_users.up.sql
+│   ├── 001_create_users.down.sql
+│   └── ...
 │
 ├── api/                    # API 定义
 │   ├── proto/              # Protobuf 定义（如使用 gRPC）
