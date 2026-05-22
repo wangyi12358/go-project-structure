@@ -1,0 +1,33 @@
+{
+  "name": "@opencode-ai/skill-go-project",
+  "version": "1.0.0",
+  "description": "Go project structure and development guidelines skill for opencode",
+  "main": "SKILL.md",
+  "scripts": {
+    "test": "echo \"No tests needed\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opencode-ai/skill-go-project.git"
+  },
+  "keywords": [
+    "opencode",
+    "skill",
+    "go",
+    "golang",
+    "project-structure",
+    "backend",
+    "api",
+    "development"
+  ],
+  "author": "opencode",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/opencode-ai/skill-go-project/issues"
+  },
+  "homepage": "https://github.com/opencode-ai/skill-go-project#readme",
+  "files": [
+    "SKILL.md",
+    "README.md"
+  ]
+}
